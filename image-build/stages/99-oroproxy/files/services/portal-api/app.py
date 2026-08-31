@@ -81,14 +81,22 @@ def session_secret() -> bytes:
 
 
 def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    digest = hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
-    return f"{salt}${digest}"
+    salt = secrets.token_bytes(16)
+    iterations = 310000
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return f"{iterations}${base64.b64encode(salt).decode()}${base64.b64encode(digest).decode()}"
 
 
 def verify_password(password: str, value: str) -> bool:
-    salt, digest = value.split("$", 1)
-    return hmac.compare_digest(hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest(), digest)
+    try:
+        iterations_s, salt_b64, digest_b64 = value.split("$", 2)
+        iterations = int(iterations_s)
+        salt = base64.b64decode(salt_b64.encode("utf-8"))
+        expected = base64.b64decode(digest_b64.encode("utf-8"))
+        candidate = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+        return hmac.compare_digest(candidate, expected)
+    except Exception:
+        return False
 
 
 def sign_token(payload: dict) -> str:
