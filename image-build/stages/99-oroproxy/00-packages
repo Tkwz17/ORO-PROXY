@@ -1,0 +1,11 @@
+hostapd
+dnsmasq
+nftables
+avahi-daemon
+python3
+python3-venv
+python3-pip
+python3-packaging
+golang-go
+curl
+openssl

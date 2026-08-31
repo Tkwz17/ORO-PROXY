@@ -1,0 +1,10 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; padding: 1rem; background: #10131a; color: #f5f7fa; }
+main { max-width: 720px; margin: 0 auto; }
+.card { background: #1b2230; padding: 1rem; border-radius: 10px; margin-bottom: 1rem; }
+input, button { width: 100%; margin: .35rem 0; padding: .6rem; border-radius: 8px; border: 1px solid #3f4a61; }
+button { cursor: pointer; font-weight: 600; }
+.hidden { display: none; }
+.row { display: flex; gap: .5rem; }
+.row > * { flex: 1; }
+pre { white-space: pre-wrap; word-break: break-word; }

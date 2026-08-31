@@ -1,0 +1,12 @@
+[Unit]
+Description=OroProxy first boot setup
+After=multi-user.target
+ConditionPathExists=!/var/lib/oroproxy/.first_boot_done
+
+[Service]
+Type=oneshot
+ExecStart=/opt/oroproxy/scripts/first-boot-setup.sh
+ExecStartPost=/usr/bin/touch /var/lib/oroproxy/.first_boot_done
+
+[Install]
+WantedBy=multi-user.target
