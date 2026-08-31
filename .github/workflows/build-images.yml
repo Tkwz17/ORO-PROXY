@@ -1,0 +1,44 @@
+name: Build OroProxy Images
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        board: [pi3, pi4, pi5]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Clone pi-gen
+        run: git clone --depth=1 https://github.com/RPi-Distro/pi-gen.git /tmp/pi-gen
+      - name: Inject OroProxy stage and config
+        run: |
+          mkdir -p /tmp/pi-gen/stages
+          cp -r image-build/stages/99-oroproxy /tmp/pi-gen/stages/99-oroproxy
+          cp image-build/config.${{ matrix.board }} /tmp/pi-gen/config
+      - name: Build image
+        run: |
+          cd /tmp/pi-gen
+          sudo ./build.sh
+      - name: Collect image
+        run: |
+          mkdir -p dist
+          img="$(find /tmp/pi-gen/deploy -maxdepth 1 -name '*.img' | head -n 1)"
+          zip -j "dist/OroProxy-${{ matrix.board }}-${GITHUB_SHA::7}.img.zip" "$img"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OroProxy-${{ matrix.board }}
+          path: dist/*.zip

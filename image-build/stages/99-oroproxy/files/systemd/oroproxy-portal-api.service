@@ -1,0 +1,17 @@
+[Unit]
+Description=OroProxy portal API
+After=network.target oroproxy-quota-daemon.service
+Wants=oroproxy-quota-daemon.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/oroproxy/services/portal-api
+Environment=OROPROXY_QUOTA_URL=http://127.0.0.1:9090
+Environment=OROPROXY_SETUP_CODE_FILE=/etc/oroproxy/setup_code
+Environment=OROPROXY_SECRET_FILE=/etc/oroproxy/session_secret
+ExecStart=/usr/bin/python3 -m uvicorn app:app --host 0.0.0.0 --port 8443 --ssl-keyfile /etc/oroproxy/tls/server.key --ssl-certfile /etc/oroproxy/tls/server.crt
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

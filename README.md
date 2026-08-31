@@ -1,0 +1,52 @@
+# OroProxy
+
+OroProxy turns a Raspberry Pi into a portable Wi-Fi access point with a captive portal, authenticated web proxying, and admin-managed daily user time quotas.
+
+## Highlights
+- Open SSID `OROAP` on first boot
+- Captive portal at `http://oroproxy.local`
+- Per-user daily minute quotas enforced server-side
+- HTTPS admin dashboard with per-device self-signed cert generation
+- First-run setup code flow (no baked default admin password)
+- Pi image builds for Pi 3, Pi 4, and Pi 5 via GitHub Actions + pi-gen
+
+## Repository layout
+- `image-build/`: pi-gen configs and custom stage
+- `services/ap-manager`: hostapd, dnsmasq, nftables templates and auth-set script
+- `services/proxy`: Go forward proxy with CONNECT tunneling
+- `services/portal-api`: FastAPI backend for auth, admin, users, and sessions
+- `services/portal-web`: no-build static login/admin UI
+- `services/quota-daemon`: Go daemon for quota/session enforcement
+- `systemd/`: service and timer units
+- `scripts/`: first-boot setup and update checker
+- `tests/`: project tests
+
+## Development quickstart
+### Proxy
+```bash
+cd services/proxy
+go test ./...
+```
+
+### Quota daemon
+```bash
+cd services/quota-daemon
+go test ./...
+```
+
+### Portal API
+```bash
+cd services/portal-api
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-dev.txt
+pytest
+```
+
+## Security and privacy defaults
+- HTTPS tunneling only for CONNECT; no TLS MITM or decryption.
+- Captive sessions bind token + MAC address.
+- Destination hostname logging is configurable and clearly labeled due to privacy tradeoffs.
+
+## License
+MIT (see `LICENSE`).

@@ -1,0 +1,5 @@
+IMG_NAME='OroProxy-pi4'
+RELEASE='bookworm'
+ARCH='arm64'
+STAGE_LIST='stage0 stage1 stage2 ./stages/99-oroproxy'
+DEPLOY_COMPRESSION='zip'

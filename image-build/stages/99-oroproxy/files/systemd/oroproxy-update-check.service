@@ -1,0 +1,8 @@
+[Unit]
+Description=OroProxy update check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/oroproxy/scripts/update-check.sh

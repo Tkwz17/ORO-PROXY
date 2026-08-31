@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>OroProxy Portal</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main>
+    <h1>OroProxy</h1>
+    <section id="setup" class="card hidden">
+      <h2>First-run setup</h2>
+      <p>Enter the one-time setup code and set the admin password.</p>
+      <form id="setup-form">
+        <input id="setup-code" placeholder="Setup code" required />
+        <input id="setup-password" placeholder="Admin password" type="password" minlength="12" required />
+        <button type="submit">Complete setup</button>
+      </form>
+      <p id="setup-result"></p>
+    </section>
+
+    <section id="login" class="card hidden">
+      <h2>Internet access login</h2>
+      <form id="login-form">
+        <input id="username" placeholder="Username" required />
+        <input id="password" placeholder="Password" type="password" required />
+        <input id="client-mac" placeholder="Client MAC (aa:bb:cc:dd:ee:ff)" required />
+        <button type="submit">Login</button>
+      </form>
+      <p id="login-result"></p>
+    </section>
+
+    <section id="admin" class="card hidden">
+      <h2>Admin dashboard</h2>
+      <div class="row">
+        <input id="admin-password" type="password" placeholder="Admin password" />
+        <button id="admin-login">Admin sign in</button>
+      </div>
+      <div class="row">
+        <button id="refresh-sessions">Refresh active sessions</button>
+      </div>
+      <pre id="sessions"></pre>
+      <hr />
+      <h3>Create user</h3>
+      <form id="user-form">
+        <input id="new-username" placeholder="Username" required />
+        <input id="new-password" type="password" placeholder="Password" required />
+        <input id="new-minutes" type="number" min="1" placeholder="Daily minutes" required />
+        <button type="submit">Create</button>
+      </form>
+      <p id="admin-result"></p>
+    </section>
+  </main>
+  <script src="/main.js"></script>
+</body>
+</html>
