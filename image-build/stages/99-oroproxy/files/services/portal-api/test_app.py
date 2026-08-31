@@ -16,6 +16,16 @@ def setup_module(_):
         f = Path(__file__).parent / p
         if f.exists():
             f.unlink()
+    app.init_db()
+    app.session_secret()
+    app.first_boot_setup_code()
+
+
+def teardown_module(_):
+    for p in ["test.db", "setup_code.txt", "session_secret.txt"]:
+        f = Path(__file__).parent / p
+        if f.exists():
+            f.unlink()
 
 
 def test_setup_flow():

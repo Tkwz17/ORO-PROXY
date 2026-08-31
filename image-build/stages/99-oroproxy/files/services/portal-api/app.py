@@ -7,7 +7,7 @@ import secrets
 import sqlite3
 import subprocess
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 import re
 from typing import Optional
@@ -173,7 +173,7 @@ def setup_complete(payload: dict):
     with db_conn() as conn:
         conn.execute(
             "UPDATE admin SET password_hash = ?, setup_complete = 1, updated_at = ? WHERE id = 1",
-            (hash_password(password), datetime.utcnow().isoformat()),
+            (hash_password(password), datetime.now(UTC).isoformat()),
         )
     return {"ok": True}
 
@@ -245,7 +245,7 @@ def user_login(payload: dict):
     with db_conn() as conn:
         conn.execute(
             "INSERT INTO sessions(id, username, client_mac, created_at, expires_at) VALUES(?, ?, ?, ?, ?)",
-            (sid, username, client_mac, datetime.utcnow().isoformat(), datetime.utcfromtimestamp(exp).isoformat()),
+            (sid, username, client_mac, datetime.now(UTC).isoformat(), datetime.fromtimestamp(exp, UTC).isoformat()),
         )
 
     with httpx.Client(timeout=3.0) as client:
@@ -333,6 +333,6 @@ def change_admin_password(payload: dict, _: str = Depends(require_admin)):
             raise HTTPException(status_code=401, detail="invalid current password")
         conn.execute(
             "UPDATE admin SET password_hash = ?, updated_at = ? WHERE id = 1",
-            (hash_password(new_password), datetime.utcnow().isoformat()),
+            (hash_password(new_password), datetime.now(UTC).isoformat()),
         )
     return {"ok": True}
