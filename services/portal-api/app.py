@@ -7,6 +7,7 @@ import secrets
 import sqlite3
 import subprocess
 import time
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 import re
@@ -30,7 +31,15 @@ WIFI_CONFIG_FILE = Path(os.getenv("OROPROXY_WIFI_CONFIG_FILE", "/etc/oroproxy/ho
 NETWORK_STATE_FILE = Path(os.getenv("OROPROXY_NETWORK_STATE_FILE", "/var/lib/oroproxy/network-state.json"))
 AP_MODE_MANAGER_SCRIPT = os.getenv("OROPROXY_AP_MODE_MANAGER_SCRIPT", "/opt/oroproxy/scripts/ap-mode-manager.sh")
 
-app = FastAPI(title="OroProxy Portal API")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    session_secret()
+    first_boot_setup_code()
+    yield
+
+
+app = FastAPI(title="OroProxy Portal API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
@@ -166,10 +175,29 @@ def first_boot_setup_code() -> str:
 
 
 def validate_mac(mac: str) -> str:
+    if not isinstance(mac, str):
+        raise HTTPException(status_code=400, detail="invalid client_mac")
     mac = mac.strip().lower()
     if not re.fullmatch(r"[0-9a-f]{2}(:[0-9a-f]{2}){5}", mac):
         raise HTTPException(status_code=400, detail="invalid client_mac")
     return mac
+
+
+def positive_int(value: object, field: str) -> int:
+    """Parse a positive integer supplied in an API payload.
+
+    Reject booleans explicitly: Python treats them as integers, but accepting
+    ``true`` as one minute is surprising and makes malformed requests succeed.
+    """
+    if isinstance(value, bool):
+        raise HTTPException(status_code=400, detail=f"{field} must be a positive integer")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"{field} must be a positive integer") from exc
+    if parsed <= 0:
+        raise HTTPException(status_code=400, detail=f"{field} must be a positive integer")
+    return parsed
 
 
 def update_auth_set(action: str, mac: str) -> None:
@@ -230,13 +258,6 @@ def save_wifi_credentials(ssid: str, password: str) -> None:
     WIFI_CONFIG_FILE.chmod(0o600)
 
 
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
-    session_secret()
-    first_boot_setup_code()
-
-
 @app.get("/api/setup/status")
 def setup_status():
     with db_conn() as conn:
@@ -251,7 +272,8 @@ def network_state():
 
 @app.post("/api/network/connect")
 def network_connect(payload: dict):
-    ssid = payload.get("ssid", "").strip()
+    raw_ssid = payload.get("ssid", "")
+    ssid = raw_ssid.strip() if isinstance(raw_ssid, str) else ""
     password = payload.get("password", "")
     if not ssid:
         raise HTTPException(status_code=400, detail="ssid is required")
@@ -279,7 +301,7 @@ def setup_complete(payload: dict):
     if payload.get("setup_code") != first_boot_setup_code():
         raise HTTPException(status_code=403, detail="invalid setup code")
     password = payload.get("password", "")
-    if len(password) < 12:
+    if not isinstance(password, str) or len(password) < 12:
         raise HTTPException(status_code=400, detail="password must be at least 12 characters")
     with db_conn() as conn:
         conn.execute(
@@ -295,7 +317,8 @@ def admin_login(payload: dict):
         row = conn.execute("SELECT password_hash, setup_complete FROM admin WHERE id = 1").fetchone()
     if not row or row["setup_complete"] != 1 or not row["password_hash"]:
         raise HTTPException(status_code=423, detail="setup incomplete")
-    if not verify_password(payload.get("password", ""), row["password_hash"]):
+    password = payload.get("password", "")
+    if not isinstance(password, str) or not verify_password(password, row["password_hash"]):
         raise HTTPException(status_code=401, detail="invalid credentials")
     token = sign_token({"kind": "admin", "sub": "admin", "exp": int(time.time()) + 8 * 3600})
     return {"token": token}
@@ -304,10 +327,11 @@ def admin_login(payload: dict):
 @app.post("/api/users")
 def create_user(payload: dict, _: str = Depends(require_admin)):
     require_setup_complete()
-    username = payload.get("username", "").strip()
+    raw_username = payload.get("username", "")
+    username = raw_username.strip() if isinstance(raw_username, str) else ""
     password = payload.get("password", "")
-    daily_minutes = int(payload.get("daily_minutes", 0))
-    if not username or len(password) < 8 or daily_minutes <= 0:
+    daily_minutes = positive_int(payload.get("daily_minutes", 0), "daily_minutes")
+    if not username or not isinstance(password, str) or len(password) < 8:
         raise HTTPException(status_code=400, detail="invalid user payload")
     with db_conn() as conn:
         conn.execute(
@@ -325,14 +349,14 @@ def update_user(username: str, payload: dict, _: str = Depends(require_admin)):
     updates = []
     values = []
     if daily_minutes is not None:
-        daily_minutes = int(daily_minutes)
-        if daily_minutes <= 0:
-            raise HTTPException(status_code=400, detail="daily_minutes must be > 0")
+        daily_minutes = positive_int(daily_minutes, "daily_minutes")
         updates.append("daily_minutes = ?")
         values.append(daily_minutes)
     if is_active is not None:
+        if not isinstance(is_active, bool):
+            raise HTTPException(status_code=400, detail="is_active must be a boolean")
         updates.append("is_active = ?")
-        values.append(1 if bool(is_active) else 0)
+        values.append(1 if is_active else 0)
     if not updates:
         raise HTTPException(status_code=400, detail="no update fields provided")
     values.append(username)
@@ -364,7 +388,8 @@ def delete_user(username: str, _: str = Depends(require_admin)):
 @app.post("/api/auth/login")
 def user_login(payload: dict):
     require_setup_complete()
-    username = payload.get("username", "").strip()
+    raw_username = payload.get("username", "")
+    username = raw_username.strip() if isinstance(raw_username, str) else ""
     password = payload.get("password", "")
     client_mac = validate_mac(payload.get("client_mac", ""))
     if not username or not client_mac:
@@ -517,7 +542,7 @@ def change_admin_password(payload: dict, _: str = Depends(require_admin)):
     require_setup_complete()
     old_password = payload.get("old_password", "")
     new_password = payload.get("new_password", "")
-    if len(new_password) < 12:
+    if not isinstance(old_password, str) or not isinstance(new_password, str) or len(new_password) < 12:
         raise HTTPException(status_code=400, detail="new password too short")
 
     with db_conn() as conn:

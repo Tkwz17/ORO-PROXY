@@ -76,6 +76,28 @@ def test_user_admin_crud():
     assert delete.status_code == 204
 
 
+def test_user_admin_rejects_invalid_field_types():
+    client = TestClient(app.app)
+    headers = _admin_headers(client)
+
+    invalid_minutes = client.post(
+        "/api/users",
+        json={"username": "eve", "password": "password123", "daily_minutes": "not-a-number"},
+        headers=headers,
+    )
+    assert invalid_minutes.status_code == 400
+
+    create = client.post(
+        "/api/users",
+        json={"username": "eve", "password": "password123", "daily_minutes": 60},
+        headers=headers,
+    )
+    assert create.status_code == 200
+
+    invalid_active = client.put("/api/users/eve", json={"is_active": "false"}, headers=headers)
+    assert invalid_active.status_code == 400
+
+
 def test_revoke_session():
     client = TestClient(app.app)
     headers = _admin_headers(client)
