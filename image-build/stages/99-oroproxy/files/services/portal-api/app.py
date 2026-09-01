@@ -25,6 +25,9 @@ AUTH_SCRIPT = os.getenv("OROPROXY_AUTH_SCRIPT", "/opt/oroproxy/services/ap-manag
 UPDATE_CHECK_SCRIPT = os.getenv("OROPROXY_UPDATE_CHECK_SCRIPT", "/opt/oroproxy/scripts/update-check.sh")
 UPDATE_APPLY_SCRIPT = os.getenv("OROPROXY_UPDATE_APPLY_SCRIPT", "/opt/oroproxy/scripts/apply-update.sh")
 UPDATE_STATUS_FILE = Path(os.getenv("OROPROXY_UPDATE_STATUS_FILE", "/var/lib/oroproxy/update-status.json"))
+WIFI_CONFIG_FILE = Path(os.getenv("OROPROXY_WIFI_CONFIG_FILE", "/etc/oroproxy/home_wifi.json"))
+NETWORK_STATE_FILE = Path(os.getenv("OROPROXY_NETWORK_STATE_FILE", "/var/lib/oroproxy/network-state.json"))
+AP_MODE_MANAGER_SCRIPT = os.getenv("OROPROXY_AP_MODE_MANAGER_SCRIPT", "/opt/oroproxy/scripts/ap-mode-manager.sh")
 
 app = FastAPI(title="OroProxy Portal API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -193,6 +196,39 @@ def append_connection_log(username: str, client_mac: str, event: str, destinatio
         )
 
 
+def read_network_state() -> dict:
+    default_state = {"mode": "ap", "connected_ssid": None, "last_error": None}
+    if not NETWORK_STATE_FILE.exists():
+        return default_state
+    try:
+        state = json.loads(NETWORK_STATE_FILE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return default_state
+    mode = state.get("mode")
+    if mode not in {"ap", "connecting", "home"}:
+        mode = "ap"
+    return {
+        "mode": mode,
+        "connected_ssid": state.get("connected_ssid"),
+        "last_error": state.get("last_error"),
+    }
+
+
+def write_network_state(mode: str, connected_ssid: Optional[str] = None, last_error: Optional[str] = None) -> None:
+    NETWORK_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    NETWORK_STATE_FILE.write_text(
+        json.dumps({"mode": mode, "connected_ssid": connected_ssid, "last_error": last_error}),
+        encoding="utf-8",
+    )
+    NETWORK_STATE_FILE.chmod(0o600)
+
+
+def save_wifi_credentials(ssid: str, password: str) -> None:
+    WIFI_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    WIFI_CONFIG_FILE.write_text(json.dumps({"ssid": ssid, "psk": password}), encoding="utf-8")
+    WIFI_CONFIG_FILE.chmod(0o600)
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
@@ -205,6 +241,36 @@ def setup_status():
     with db_conn() as conn:
         row = conn.execute("SELECT setup_complete FROM admin WHERE id = 1").fetchone()
     return {"setup_complete": bool(row and row["setup_complete"] == 1)}
+
+
+@app.get("/api/network/state")
+def network_state():
+    return read_network_state()
+
+
+@app.post("/api/network/connect")
+def network_connect(payload: dict):
+    ssid = payload.get("ssid", "").strip()
+    password = payload.get("password", "")
+    if not ssid:
+        raise HTTPException(status_code=400, detail="ssid is required")
+    if not password:
+        raise HTTPException(status_code=400, detail="password is required")
+    if len(ssid) > 32:
+        raise HTTPException(status_code=400, detail="ssid too long")
+
+    state = read_network_state()
+    if state.get("mode") == "home":
+        raise HTTPException(status_code=409, detail="already connected to home network")
+
+    save_wifi_credentials(ssid, password)
+    write_network_state("connecting", connected_ssid=ssid, last_error=None)
+
+    proc = subprocess.run([AP_MODE_MANAGER_SCRIPT, "connect"], check=False, capture_output=True, text=True)
+    if proc.returncode != 0:
+        write_network_state("ap", connected_ssid=None, last_error=proc.stderr.strip() or proc.stdout.strip() or "connect failed")
+        raise HTTPException(status_code=500, detail="failed to connect to home network")
+    return {"ok": True, "state": read_network_state()}
 
 
 @app.post("/api/setup/complete")

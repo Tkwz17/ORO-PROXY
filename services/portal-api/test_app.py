@@ -8,12 +8,15 @@ os.environ["OROPROXY_DB_PATH"] = str(Path(__file__).parent / "test.db")
 os.environ["OROPROXY_SETUP_CODE_FILE"] = str(Path(__file__).parent / "setup_code.txt")
 os.environ["OROPROXY_SECRET_FILE"] = str(Path(__file__).parent / "session_secret.txt")
 os.environ["OROPROXY_AUTH_SCRIPT"] = "/bin/true"
+os.environ["OROPROXY_WIFI_CONFIG_FILE"] = str(Path(__file__).parent / "home_wifi.json")
+os.environ["OROPROXY_NETWORK_STATE_FILE"] = str(Path(__file__).parent / "network_state.json")
+os.environ["OROPROXY_AP_MODE_MANAGER_SCRIPT"] = "/bin/true"
 
 import app  # noqa: E402
 
 
 def setup_module(_):
-    for p in ["test.db", "setup_code.txt", "session_secret.txt"]:
+    for p in ["test.db", "setup_code.txt", "session_secret.txt", "home_wifi.json", "network_state.json"]:
         f = Path(__file__).parent / p
         if f.exists():
             f.unlink()
@@ -23,7 +26,7 @@ def setup_module(_):
 
 
 def teardown_module(_):
-    for p in ["test.db", "setup_code.txt", "session_secret.txt"]:
+    for p in ["test.db", "setup_code.txt", "session_secret.txt", "home_wifi.json", "network_state.json"]:
         f = Path(__file__).parent / p
         if f.exists():
             f.unlink()
@@ -98,3 +101,26 @@ def test_revoke_session():
         headers=headers,
     )
     assert revoke.status_code == 200
+
+
+def test_network_connect_flow():
+    client = TestClient(app.app)
+
+    state = client.get("/api/network/state")
+    assert state.status_code == 200
+    assert state.json()["mode"] == "ap"
+
+    invalid = client.post("/api/network/connect", json={"ssid": "", "password": "secret1234"})
+    assert invalid.status_code == 400
+
+    connect = client.post("/api/network/connect", json={"ssid": "HomeNet", "password": "secret1234"})
+    assert connect.status_code == 200
+    assert connect.json()["ok"] is True
+
+    creds = Path(os.environ["OROPROXY_WIFI_CONFIG_FILE"]).read_text(encoding="utf-8")
+    assert "\"ssid\": \"HomeNet\"" in creds
+    assert "\"psk\": \"secret1234\"" in creds
+
+    app.write_network_state("home", connected_ssid="HomeNet")
+    blocked = client.post("/api/network/connect", json={"ssid": "OtherNet", "password": "secret1234"})
+    assert blocked.status_code == 409
