@@ -4,7 +4,7 @@
   <name replace-wildcards="yes">OroProxy on %h</name>
   <service>
     <type>_http._tcp</type>
-    <port>8081</port>
+    <port>80</port>
   </service>
   <service>
     <type>_https._tcp</type>

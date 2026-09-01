@@ -16,6 +16,7 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 DB_PATH = Path(os.getenv("OROPROXY_DB_PATH", "/var/lib/oroproxy/oroproxy.db"))
 SETUP_CODE_FILE = Path(os.getenv("OROPROXY_SETUP_CODE_FILE", "/etc/oroproxy/setup_code"))
@@ -254,10 +255,10 @@ def network_connect(payload: dict):
     password = payload.get("password", "")
     if not ssid:
         raise HTTPException(status_code=400, detail="ssid is required")
-    if not password:
-        raise HTTPException(status_code=400, detail="password is required")
-    if len(ssid) > 32:
-        raise HTTPException(status_code=400, detail="ssid too long")
+    if len(ssid) > 32 or any(ord(char) < 32 for char in ssid):
+        raise HTTPException(status_code=400, detail="invalid SSID")
+    if not isinstance(password, str) or len(password) > 63:
+        raise HTTPException(status_code=400, detail="invalid Wi-Fi password")
 
     state = read_network_state()
     if state.get("mode") == "home":
@@ -555,3 +556,10 @@ def apply_update(_: str = Depends(require_admin)):
     if proc.returncode != 0:
         raise HTTPException(status_code=500, detail=f"update failed: {proc.stderr.strip() or proc.stdout.strip()}")
     return {"ok": True, "message": proc.stdout.strip() or "update applied"}
+
+
+# The same dashboard is available via HTTPS on the home network.  The separate
+# port-80 server exposes only the constrained Wi-Fi onboarding bridge.
+WEB_ROOT = Path(os.getenv("OROPROXY_WEB_ROOT", "/opt/oroproxy/services/portal-web"))
+if WEB_ROOT.is_dir():
+    app.mount("/", StaticFiles(directory=str(WEB_ROOT), html=True), name="dashboard")

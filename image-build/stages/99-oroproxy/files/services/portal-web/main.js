@@ -1,4 +1,5 @@
-const apiBase = "https://oroproxy.local:8443";
+const apiBase = "https://oroproxy.local:8443"; // Admin and account APIs remain HTTPS.
+const setupApiBase = window.location.origin; // HTTP bridge exposes only AP Wi-Fi onboarding.
 let adminToken = "";
 let networkPollTimer = null;
 
@@ -21,13 +22,13 @@ function setNetworkStatus(state) {
 }
 
 async function refreshNetworkState() {
-  const net = await get(`${apiBase}/api/network/state`);
+  const net = await get(`${setupApiBase}/api/network/state`);
   if (!net.ok) return;
   setNetworkStatus(net.data);
 }
 
 async function init() {
-  const net = await get(`${apiBase}/api/network/state`);
+  const net = await get(`${setupApiBase}/api/network/state`);
   if (net.ok && net.data.mode !== "home") {
     onboardingSection.classList.remove("hidden");
     setNetworkStatus(net.data);
@@ -83,10 +84,10 @@ document.getElementById("wifi-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const ssid = document.getElementById("wifi-ssid").value.trim();
   const password = document.getElementById("wifi-password").value;
-  const res = await post(`${apiBase}/api/network/connect`, { ssid, password });
+  const res = await post(`${setupApiBase}/api/network/connect`, { ssid, password });
   document.getElementById("wifi-result").textContent = res.ok
-    ? "Connection attempt started. If successful, reconnect to your home Wi-Fi and open oroproxy.local."
-    : `Connection failed (${res.status})`;
+    ? "OroProxy is joining the network. Reconnect to your home Wi-Fi, then open http://oroproxy.local."
+    : `Connection failed: ${res.data.detail || `HTTP ${res.status}`}`;
   refreshNetworkState();
 });
 
