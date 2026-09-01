@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'cp /opt/oroproxy/services/ap-manager/hostapd.conf /etc/hostapd/hostapd.conf && cp /opt/oroproxy/services/ap-manager/dnsmasq.conf /etc/dnsmasq.d/oroproxy.conf && cp /opt/oroproxy/services/ap-manager/avahi-oroproxy.service /etc/avahi/services/oroproxy.service && nft -f /opt/oroproxy/services/ap-manager/nftables.conf && systemctl restart hostapd dnsmasq avahi-daemon'
+ExecStart=/opt/oroproxy/scripts/ap-mode-manager.sh boot
 RemainAfterExit=true
 Restart=on-failure
 

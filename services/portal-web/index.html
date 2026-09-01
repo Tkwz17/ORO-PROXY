@@ -9,6 +9,18 @@
 <body>
   <main>
     <h1>OroProxy</h1>
+    <section id="onboarding" class="card hidden">
+      <h2>Connect OroProxy to home Wi-Fi</h2>
+      <p>Enter your home Wi-Fi details. OroProxy will join that network. If it fails, it will stay in AP mode.</p>
+      <form id="wifi-form">
+        <input id="wifi-ssid" placeholder="Wi-Fi SSID" required />
+        <input id="wifi-password" placeholder="Wi-Fi password" type="password" required />
+        <button type="submit">Connect</button>
+      </form>
+      <p id="wifi-status"></p>
+      <p id="wifi-result"></p>
+    </section>
+
     <section id="setup" class="card hidden">
       <h2>First-run setup</h2>
       <p>Enter the one-time setup code and set the admin password.</p>

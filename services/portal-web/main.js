@@ -1,11 +1,43 @@
 const apiBase = "https://oroproxy.local:8443";
 let adminToken = "";
+let networkPollTimer = null;
 
+const onboardingSection = document.getElementById("onboarding");
 const setupSection = document.getElementById("setup");
 const loginSection = document.getElementById("login");
 const adminSection = document.getElementById("admin");
 
+function setNetworkStatus(state) {
+  const statusEl = document.getElementById("wifi-status");
+  if (state.mode === "home") {
+    statusEl.textContent = `Connected to ${state.connected_ssid || "home network"}. Reload this page from your home network.`;
+    return;
+  }
+  if (state.mode === "connecting") {
+    statusEl.textContent = `Connecting to ${state.connected_ssid || "Wi-Fi"}...`;
+    return;
+  }
+  statusEl.textContent = state.last_error ? `AP mode active. Last error: ${state.last_error}` : "AP mode active.";
+}
+
+async function refreshNetworkState() {
+  const net = await get(`${apiBase}/api/network/state`);
+  if (!net.ok) return;
+  setNetworkStatus(net.data);
+}
+
 async function init() {
+  const net = await get(`${apiBase}/api/network/state`);
+  if (net.ok && net.data.mode !== "home") {
+    onboardingSection.classList.remove("hidden");
+    setNetworkStatus(net.data);
+    if (networkPollTimer) clearInterval(networkPollTimer);
+    networkPollTimer = setInterval(refreshNetworkState, 3000);
+    return;
+  }
+  onboardingSection.classList.add("hidden");
+  if (networkPollTimer) clearInterval(networkPollTimer);
+
   const status = await fetch(`${apiBase}/api/setup/status`).then((r) => r.json());
   if (!status.setup_complete) {
     setupSection.classList.remove("hidden");
@@ -45,6 +77,17 @@ document.getElementById("setup-form").addEventListener("submit", async (e) => {
   const password = document.getElementById("setup-password").value;
   const res = await post(`${apiBase}/api/setup/complete`, { setup_code, password });
   document.getElementById("setup-result").textContent = res.ok ? "Setup complete. Reload the page." : `Error ${res.status}`;
+});
+
+document.getElementById("wifi-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const ssid = document.getElementById("wifi-ssid").value.trim();
+  const password = document.getElementById("wifi-password").value;
+  const res = await post(`${apiBase}/api/network/connect`, { ssid, password });
+  document.getElementById("wifi-result").textContent = res.ok
+    ? "Connection attempt started. If successful, reconnect to your home Wi-Fi and open oroproxy.local."
+    : `Connection failed (${res.status})`;
+  refreshNetworkState();
 });
 
 document.getElementById("login-form").addEventListener("submit", async (e) => {
