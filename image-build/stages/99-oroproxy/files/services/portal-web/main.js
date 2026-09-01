@@ -15,11 +15,28 @@ async function init() {
   adminSection.classList.remove("hidden");
 }
 
-async function post(url, body, auth = false) {
+async function post(url, body, auth = false, method = "POST") {
   const headers = { "Content-Type": "application/json" };
   if (auth && adminToken) headers.Authorization = "Token " + adminToken;
-  const resp = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+  const options = { method, headers };
+  if (body !== undefined) options.body = JSON.stringify(body);
+  const resp = await fetch(url, options);
   return { ok: resp.ok, status: resp.status, data: await resp.json().catch(() => ({})) };
+}
+
+async function get(url, auth = false) {
+  const headers = {};
+  if (auth && adminToken) headers.Authorization = "Token " + adminToken;
+  const resp = await fetch(url, { headers });
+  return { ok: resp.ok, status: resp.status, data: await resp.json().catch(() => ({})) };
+}
+
+function showAdminError() {
+  if (!adminToken) {
+    document.getElementById("admin-result").textContent = "Please sign in as admin first.";
+    return true;
+  }
+  return false;
 }
 
 document.getElementById("setup-form").addEventListener("submit", async (e) => {
@@ -53,15 +70,9 @@ document.getElementById("admin-login").addEventListener("click", async () => {
 });
 
 document.getElementById("refresh-sessions").addEventListener("click", async () => {
-  if (!adminToken) {
-    document.getElementById("sessions").textContent = "Please sign in as admin first.";
-    return;
-  }
-  const resp = await fetch(`${apiBase}/api/sessions/active`, {
-    headers: { Authorization: "Token " + adminToken },
-  });
-  const data = await resp.json();
-  document.getElementById("sessions").textContent = JSON.stringify(data, null, 2);
+  if (showAdminError()) return;
+  const res = await get(`${apiBase}/api/sessions/active`, true);
+  document.getElementById("sessions").textContent = JSON.stringify(res.data, null, 2);
 });
 
 document.getElementById("user-form").addEventListener("submit", async (e) => {
@@ -71,6 +82,84 @@ document.getElementById("user-form").addEventListener("submit", async (e) => {
   const daily_minutes = Number(document.getElementById("new-minutes").value);
   const res = await post(`${apiBase}/api/users`, { username, password, daily_minutes }, true);
   document.getElementById("admin-result").textContent = res.ok ? "User created." : `Create failed (${res.status})`;
+});
+
+document.getElementById("refresh-users").addEventListener("click", async () => {
+  if (showAdminError()) return;
+  const res = await get(`${apiBase}/api/users`, true);
+  document.getElementById("users").textContent = JSON.stringify(res.data, null, 2);
+});
+
+document.getElementById("update-user-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (showAdminError()) return;
+  const username = document.getElementById("update-username").value.trim();
+  const minutesRaw = document.getElementById("update-minutes").value;
+  const is_active = document.getElementById("update-active").checked;
+  const payload = { is_active };
+  if (minutesRaw) payload.daily_minutes = Number(minutesRaw);
+  const res = await post(`${apiBase}/api/users/${encodeURIComponent(username)}`, payload, true, "PUT");
+  document.getElementById("admin-result").textContent = res.ok ? "User updated." : `Update failed (${res.status})`;
+});
+
+document.getElementById("delete-user-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (showAdminError()) return;
+  const username = document.getElementById("delete-username").value.trim();
+  const res = await post(`${apiBase}/api/users/${encodeURIComponent(username)}`, undefined, true, "DELETE");
+  document.getElementById("admin-result").textContent = res.ok ? "User deleted." : `Delete failed (${res.status})`;
+});
+
+document.getElementById("revoke-session-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (showAdminError()) return;
+  const session_id = document.getElementById("revoke-session-id").value.trim();
+  const client_mac = document.getElementById("revoke-mac").value.trim();
+  const username = document.getElementById("revoke-username").value.trim();
+  const res = await post(`${apiBase}/api/sessions/revoke`, { session_id, client_mac, username }, true);
+  document.getElementById("admin-result").textContent = res.ok ? "Session revoked." : `Revoke failed (${res.status})`;
+});
+
+document.getElementById("refresh-health").addEventListener("click", async () => {
+  if (showAdminError()) return;
+  const res = await get(`${apiBase}/api/health`, true);
+  document.getElementById("health").textContent = JSON.stringify(res.data, null, 2);
+});
+
+document.getElementById("logging-on").addEventListener("click", async () => {
+  if (showAdminError()) return;
+  const res = await post(`${apiBase}/api/settings/logging`, { enabled: true }, true);
+  document.getElementById("admin-result").textContent = res.ok ? "Hostname logging enabled." : `Failed (${res.status})`;
+});
+
+document.getElementById("logging-off").addEventListener("click", async () => {
+  if (showAdminError()) return;
+  const res = await post(`${apiBase}/api/settings/logging`, { enabled: false }, true);
+  document.getElementById("admin-result").textContent = res.ok ? "Hostname logging disabled." : `Failed (${res.status})`;
+});
+
+document.getElementById("refresh-logs").addEventListener("click", async () => {
+  if (showAdminError()) return;
+  const res = await get(`${apiBase}/api/logs`, true);
+  document.getElementById("logs").textContent = JSON.stringify(res.data, null, 2);
+});
+
+document.getElementById("clear-logs").addEventListener("click", async () => {
+  if (showAdminError()) return;
+  const res = await post(`${apiBase}/api/logs/clear`, {}, true);
+  document.getElementById("admin-result").textContent = res.ok ? "Logs cleared." : `Failed (${res.status})`;
+});
+
+document.getElementById("check-update").addEventListener("click", async () => {
+  if (showAdminError()) return;
+  const res = await post(`${apiBase}/api/update/check`, {}, true);
+  document.getElementById("update-status").textContent = JSON.stringify(res.data, null, 2);
+});
+
+document.getElementById("apply-update").addEventListener("click", async () => {
+  if (showAdminError()) return;
+  const res = await post(`${apiBase}/api/update/apply`, {}, true);
+  document.getElementById("admin-result").textContent = res.ok ? "Update applied." : `Update failed (${res.status})`;
 });
 
 init();

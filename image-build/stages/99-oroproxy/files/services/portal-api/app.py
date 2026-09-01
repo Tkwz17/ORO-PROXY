@@ -22,6 +22,9 @@ SETUP_CODE_FILE = Path(os.getenv("OROPROXY_SETUP_CODE_FILE", "/etc/oroproxy/setu
 SECRET_FILE = Path(os.getenv("OROPROXY_SECRET_FILE", "/etc/oroproxy/session_secret"))
 QUOTA_URL = os.getenv("OROPROXY_QUOTA_URL", "http://127.0.0.1:9090")
 AUTH_SCRIPT = os.getenv("OROPROXY_AUTH_SCRIPT", "/opt/oroproxy/services/ap-manager/manage_auth_set.sh")
+UPDATE_CHECK_SCRIPT = os.getenv("OROPROXY_UPDATE_CHECK_SCRIPT", "/opt/oroproxy/scripts/update-check.sh")
+UPDATE_APPLY_SCRIPT = os.getenv("OROPROXY_UPDATE_APPLY_SCRIPT", "/opt/oroproxy/scripts/apply-update.sh")
+UPDATE_STATUS_FILE = Path(os.getenv("OROPROXY_UPDATE_STATUS_FILE", "/var/lib/oroproxy/update-status.json"))
 
 app = FastAPI(title="OroProxy Portal API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -68,6 +71,15 @@ def init_db() -> None:
               value TEXT NOT NULL
             );
             INSERT OR IGNORE INTO settings(key, value) VALUES ('hostname_logging_enabled', 'false');
+
+            CREATE TABLE IF NOT EXISTS connection_logs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              username TEXT NOT NULL,
+              client_mac TEXT NOT NULL,
+              event TEXT NOT NULL,
+              destination_host TEXT,
+              created_at TEXT NOT NULL
+            );
             """
         )
 
@@ -102,13 +114,16 @@ def verify_password(password: str, value: str) -> bool:
 def sign_token(payload: dict) -> str:
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     sig = hmac.new(session_secret(), body, hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(body + b"." + sig).decode("utf-8")
+    body_b64 = base64.urlsafe_b64encode(body).decode("utf-8").rstrip("=")
+    sig_b64 = base64.urlsafe_b64encode(sig).decode("utf-8").rstrip("=")
+    return f"{body_b64}.{sig_b64}"
 
 
 def parse_token(token: str) -> Optional[dict]:
     try:
-        raw = base64.urlsafe_b64decode(token.encode("utf-8"))
-        body, sig = raw.rsplit(b".", 1)
+        body_b64, sig_b64 = token.split(".", 1)
+        body = base64.urlsafe_b64decode(body_b64 + "=" * (-len(body_b64) % 4))
+        sig = base64.urlsafe_b64decode(sig_b64 + "=" * (-len(sig_b64) % 4))
         expected = hmac.new(session_secret(), body, hashlib.sha256).digest()
         if not hmac.compare_digest(sig, expected):
             return None
@@ -155,6 +170,27 @@ def validate_mac(mac: str) -> str:
 
 def update_auth_set(action: str, mac: str) -> None:
     subprocess.run([AUTH_SCRIPT, action, mac], check=False)
+
+
+def quota_request(method: str, path: str, payload: Optional[dict] = None) -> httpx.Response:
+    try:
+        with httpx.Client(timeout=3.0) as client:
+            if method == "GET":
+                return client.get(f"{QUOTA_URL}{path}")
+            return client.post(f"{QUOTA_URL}{path}", json=payload or {})
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail="quota daemon unavailable") from exc
+
+
+def append_connection_log(username: str, client_mac: str, event: str, destination_host: Optional[str] = None) -> None:
+    with db_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO connection_logs(username, client_mac, event, destination_host, created_at)
+            VALUES(?, ?, ?, ?, ?)
+            """,
+            (username, client_mac, event, destination_host, datetime.now(UTC).isoformat()),
+        )
 
 
 @app.on_event("startup")
@@ -214,6 +250,32 @@ def create_user(payload: dict, _: str = Depends(require_admin)):
     return {"ok": True}
 
 
+@app.put("/api/users/{username}")
+def update_user(username: str, payload: dict, _: str = Depends(require_admin)):
+    require_setup_complete()
+    daily_minutes = payload.get("daily_minutes")
+    is_active = payload.get("is_active")
+    updates = []
+    values = []
+    if daily_minutes is not None:
+        daily_minutes = int(daily_minutes)
+        if daily_minutes <= 0:
+            raise HTTPException(status_code=400, detail="daily_minutes must be > 0")
+        updates.append("daily_minutes = ?")
+        values.append(daily_minutes)
+    if is_active is not None:
+        updates.append("is_active = ?")
+        values.append(1 if bool(is_active) else 0)
+    if not updates:
+        raise HTTPException(status_code=400, detail="no update fields provided")
+    values.append(username)
+    with db_conn() as conn:
+        cur = conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE username = ?", values)
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="user not found")
+    return {"ok": True}
+
+
 @app.get("/api/users")
 def list_users(_: str = Depends(require_admin)):
     require_setup_complete()
@@ -226,7 +288,9 @@ def list_users(_: str = Depends(require_admin)):
 def delete_user(username: str, _: str = Depends(require_admin)):
     require_setup_complete()
     with db_conn() as conn:
-        conn.execute("DELETE FROM users WHERE username = ?", (username,))
+        cur = conn.execute("DELETE FROM users WHERE username = ?", (username,))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="user not found")
     return JSONResponse(status_code=204, content={})
 
 
@@ -256,20 +320,21 @@ def user_login(payload: dict):
             (sid, username, client_mac, datetime.now(UTC).isoformat(), datetime.fromtimestamp(exp, UTC).isoformat()),
         )
 
-    with httpx.Client(timeout=3.0) as client:
-        resp = client.post(
-            f"{QUOTA_URL}/v1/sessions/start",
-            json={
-                "session_id": sid,
-                "username": username,
-                "client_mac": client_mac,
-                "daily_minutes": row["daily_minutes"],
-            },
-        )
-        if resp.status_code >= 300:
-            raise HTTPException(status_code=503, detail="quota daemon unavailable")
+    resp = quota_request(
+        "POST",
+        "/v1/sessions/start",
+        {
+            "session_id": sid,
+            "username": username,
+            "client_mac": client_mac,
+            "daily_minutes": row["daily_minutes"],
+        },
+    )
+    if resp.status_code >= 300:
+        raise HTTPException(status_code=503, detail="quota daemon unavailable")
 
     update_auth_set("add", client_mac)
+    append_connection_log(username, client_mac, "login")
     return {"token": token, "session_id": sid, "expires_at": exp}
 
 
@@ -286,21 +351,43 @@ def user_logout(payload: dict):
     with db_conn() as conn:
         conn.execute("DELETE FROM sessions WHERE id = ?", (sid,))
 
-    with httpx.Client(timeout=3.0) as client:
-        client.post(f"{QUOTA_URL}/v1/sessions/stop", json={"session_id": sid})
+    quota_request("POST", "/v1/sessions/stop", {"session_id": sid})
 
     update_auth_set("del", mac)
+    append_connection_log(parsed.get("sub", "unknown"), mac, "logout")
     return {"ok": True}
 
 
 @app.get("/api/sessions/active")
 def active_sessions(_: str = Depends(require_admin)):
     require_setup_complete()
-    with httpx.Client(timeout=3.0) as client:
-        resp = client.get(f"{QUOTA_URL}/v1/sessions/active")
+    resp = quota_request("GET", "/v1/sessions/active")
     if resp.status_code >= 300:
         raise HTTPException(status_code=503, detail="quota daemon unavailable")
-    return resp.json()
+    sessions = resp.json()
+    out = []
+    for session in sessions:
+        used = int(session.get("used_seconds", 0))
+        total = int(session.get("daily_minutes", 0)) * 60
+        session["remaining_seconds"] = max(total - used, 0)
+        out.append(session)
+    return out
+
+
+@app.post("/api/sessions/revoke")
+def revoke_session(payload: dict, _: str = Depends(require_admin)):
+    require_setup_complete()
+    session_id = payload.get("session_id", "").strip()
+    client_mac = validate_mac(payload.get("client_mac", ""))
+    username = payload.get("username", "").strip() or "unknown"
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+    with db_conn() as conn:
+        conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+    quota_request("POST", "/v1/sessions/stop", {"session_id": session_id})
+    update_auth_set("del", client_mac)
+    append_connection_log(username, client_mac, "revoked")
+    return {"ok": True}
 
 
 @app.get("/api/health")
@@ -310,11 +397,19 @@ def health(_: str = Depends(require_admin)):
     uptime = Path("/proc/uptime").read_text(encoding="utf-8").split()[0]
     with db_conn() as conn:
         logging = conn.execute("SELECT value FROM settings WHERE key='hostname_logging_enabled'").fetchone()["value"]
+    connected_clients = 0
+    try:
+        resp = quota_request("GET", "/v1/sessions/active")
+        if resp.status_code < 300:
+            connected_clients = len(resp.json())
+    except Exception:
+        connected_clients = 0
     return {
         "uptime_seconds": float(uptime),
         "disk_total_bytes": st.f_blocks * st.f_frsize,
         "disk_free_bytes": st.f_bfree * st.f_frsize,
         "hostname_logging_enabled": logging == "true",
+        "connected_client_count": connected_clients,
     }
 
 
@@ -325,6 +420,29 @@ def set_logging(payload: dict, _: str = Depends(require_admin)):
     with db_conn() as conn:
         conn.execute("UPDATE settings SET value = ? WHERE key='hostname_logging_enabled'", ("true" if enabled else "false",))
     return {"ok": True, "enabled": enabled}
+
+
+@app.get("/api/logs")
+def list_logs(_: str = Depends(require_admin)):
+    require_setup_complete()
+    with db_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT username, client_mac, event, destination_host, created_at
+            FROM connection_logs
+            ORDER BY id DESC
+            LIMIT 200
+            """
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/logs/clear")
+def clear_logs(_: str = Depends(require_admin)):
+    require_setup_complete()
+    with db_conn() as conn:
+        conn.execute("DELETE FROM connection_logs")
+    return {"ok": True}
 
 
 @app.post("/api/admin/password")
@@ -344,3 +462,30 @@ def change_admin_password(payload: dict, _: str = Depends(require_admin)):
             (hash_password(new_password), datetime.now(UTC).isoformat()),
         )
     return {"ok": True}
+
+
+@app.post("/api/update/check")
+def check_updates(_: str = Depends(require_admin)):
+    require_setup_complete()
+    subprocess.run([UPDATE_CHECK_SCRIPT], check=False)
+    return update_status(_)
+
+
+@app.get("/api/update/status")
+def update_status(_: str = Depends(require_admin)):
+    require_setup_complete()
+    if not UPDATE_STATUS_FILE.exists():
+        return {"current": None, "latest": None, "update_available": False}
+    try:
+        return json.loads(UPDATE_STATUS_FILE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail=f"invalid update status: {exc}") from exc
+
+
+@app.post("/api/update/apply")
+def apply_update(_: str = Depends(require_admin)):
+    require_setup_complete()
+    proc = subprocess.run([UPDATE_APPLY_SCRIPT], check=False, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise HTTPException(status_code=500, detail=f"update failed: {proc.stderr.strip() or proc.stdout.strip()}")
+    return {"ok": True, "message": proc.stdout.strip() or "update applied"}

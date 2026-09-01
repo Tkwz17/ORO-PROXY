@@ -23,9 +23,11 @@ type session struct {
 }
 
 type daemon struct {
-	mu       sync.Mutex
-	sessions map[string]*session
-	runner   nftRunner
+	mu            sync.Mutex
+	sessions      map[string]*session
+	runner        nftRunner
+	quotaLocation *time.Location
+	lastResetDay  string
 }
 
 type nftRunner interface {
@@ -40,7 +42,14 @@ func (shellRunner) RemoveAuthMAC(ctx context.Context, mac string) error {
 }
 
 func main() {
-	d := &daemon{sessions: map[string]*session{}, runner: shellRunner{}}
+	loc := loadLocation(getenv("OROPROXY_TIMEZONE", "Local"))
+	now := time.Now().In(loc)
+	d := &daemon{
+		sessions:      map[string]*session{},
+		runner:        shellRunner{},
+		quotaLocation: loc,
+		lastResetDay:  now.Format("2006-01-02"),
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/sessions/start", d.startSession)
 	mux.HandleFunc("/v1/sessions/stop", d.stopSession)
@@ -65,8 +74,17 @@ func (d *daemon) enforceLoop() {
 
 func (d *daemon) tick() {
 	now := time.Now()
+	day := now.In(d.quotaLocation).Format("2006-01-02")
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if day != d.lastResetDay {
+		for _, s := range d.sessions {
+			s.UsedSeconds = 0
+			s.LastSeen = now
+		}
+		d.lastResetDay = day
+		return
+	}
 	for sid, s := range d.sessions {
 		delta := int(now.Sub(s.LastSeen).Seconds())
 		if delta > 0 {
@@ -137,11 +155,12 @@ func (d *daemon) allowProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	d.mu.Lock()
 	s, ok := d.sessions[req.SessionID]
-	if ok && strings.EqualFold(s.ClientMAC, req.ClientMAC) {
+	allowed := ok && strings.EqualFold(s.ClientMAC, req.ClientMAC)
+	if allowed {
 		s.LastSeen = time.Now()
 	}
 	d.mu.Unlock()
-	_ = json.NewEncoder(w).Encode(map[string]bool{"allowed": ok && strings.EqualFold(s.ClientMAC, req.ClientMAC)})
+	_ = json.NewEncoder(w).Encode(map[string]bool{"allowed": allowed})
 }
 
 func (d *daemon) listSessions(w http.ResponseWriter, r *http.Request) {
@@ -164,4 +183,12 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func loadLocation(name string) *time.Location {
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return time.Local
+	}
+	return loc
 }
