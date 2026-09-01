@@ -11,6 +11,7 @@ cd /opt/oroproxy/services/quota-daemon && go build -o quota-daemon .
 pip3 install --break-system-packages -r /opt/oroproxy/services/portal-api/requirements.txt
 install -m 0644 /opt/oroproxy/systemd/*.service /etc/systemd/system/
 install -m 0644 /opt/oroproxy/systemd/*.timer /etc/systemd/system/
+systemctl enable avahi-daemon.service
 systemctl enable oroproxy-first-boot.service
 systemctl enable oroproxy-update-check.timer
 INNER

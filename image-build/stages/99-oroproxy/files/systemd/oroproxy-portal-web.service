@@ -1,11 +1,11 @@
 [Unit]
-Description=OroProxy portal web frontend
+Description=OroProxy HTTP Wi-Fi setup portal
 After=network.target
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/oroproxy/services/portal-web
-ExecStart=/usr/bin/python3 -m http.server 8081 --bind 0.0.0.0 --directory /opt/oroproxy/services/portal-web
+ExecStart=/usr/bin/python3 /opt/oroproxy/services/portal-web/server.py
 Restart=on-failure
 RestartSec=3
 

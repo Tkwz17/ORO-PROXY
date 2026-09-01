@@ -1,10 +1,11 @@
 # OroProxy
 
-OroProxy turns a Raspberry Pi into a portable Wi-Fi access point with a captive portal, authenticated web proxying, and admin-managed daily user time quotas.
+OroProxy turns a Raspberry Pi into a portable Wi-Fi setup access point that joins a home network and then provides an authenticated web proxy with admin-managed daily user time quotas on that home network.
 
 ## Highlights
-- Open SSID `OROAP` on first boot
-- Captive portal at `http://oroproxy.local`
+- Open setup SSID `OROAP` on first boot or after a failed join
+- Setup page at `http://oroproxy.local` accepts only the home Wi-Fi SSID and password
+- After joining, Avahi advertises `oroproxy.local` and the proxy listens on TCP `3128` on the home network
 - Per-user daily minute quotas enforced server-side
 - HTTPS admin dashboard with per-device self-signed cert generation
 - First-run setup code flow (no baked default admin password)
