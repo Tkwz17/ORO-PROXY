@@ -11,8 +11,13 @@
 - View active sessions and remaining time
 - Revoke sessions manually
 - Enable/disable destination-host logging (privacy-sensitive)
+- View and clear basic connection event logs
 - Change admin password and inspect device health
-- Check and apply release updates manually
+- Check for updates and apply release updates manually
 
 ## HTTPS trust
 The device generates a unique self-signed certificate at first boot in `/etc/oroproxy/tls/`. Import this cert into trusted stores on admin devices to remove warnings.
+
+## Updates
+- Background checks run via `oroproxy-update-check.timer`.
+- Manual update application runs `/opt/oroproxy/scripts/apply-update.sh`, which downloads the latest tagged release and restarts OroProxy services.

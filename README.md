@@ -8,6 +8,7 @@ OroProxy turns a Raspberry Pi into a portable Wi-Fi access point with a captive 
 - Per-user daily minute quotas enforced server-side
 - HTTPS admin dashboard with per-device self-signed cert generation
 - First-run setup code flow (no baked default admin password)
+- Manual check/apply update flow via dashboard and update scripts
 - Pi image builds for Pi 3, Pi 4, and Pi 5 via GitHub Actions + pi-gen
 
 ## Repository layout
@@ -47,6 +48,7 @@ pytest
 - HTTPS tunneling only for CONNECT; no TLS MITM or decryption.
 - Captive sessions bind token + MAC address.
 - Destination hostname logging is configurable and clearly labeled due to privacy tradeoffs.
+- If quota/auth services are unavailable, new sessions fail closed while recently validated sessions get a brief grace window.
 
 ## License
 MIT (see `LICENSE`).

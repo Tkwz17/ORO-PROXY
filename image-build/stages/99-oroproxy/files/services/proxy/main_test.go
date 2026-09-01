@@ -23,11 +23,12 @@ func TestQuotaAllow(t *testing.T) {
 	defer ts.Close()
 
 	qc := &quotaClient{baseURL: ts.URL, http: &http.Client{Timeout: time.Second}}
-	if !qc.allow(context.Background(), "s1", "AA:BB:CC:DD:EE:FF") {
+	ok, reachable := qc.allow(context.Background(), "s1", "AA:BB:CC:DD:EE:FF")
+	if !ok || !reachable {
 		t.Fatal("expected allow true")
 	}
-	if qc.allow(context.Background(), "", "aa") {
-		t.Fatal("expected allow false for empty session")
+	if allowed, _ := qc.allow(context.Background(), "", "aa"); allowed {
+		t.Fatal("expected denied for empty session")
 	}
 }
 
@@ -39,5 +40,17 @@ func TestCopyHeader(t *testing.T) {
 	copyHeader(dst, src)
 	if got := bytes.Join([][]byte{[]byte(dst.Get("X-Test"))}, nil); len(got) == 0 {
 		t.Fatal("expected copied headers")
+	}
+}
+
+func TestGracefulDegradationAllowsRecentlyValidatedSession(t *testing.T) {
+	srv := &proxyServer{
+		quota:              &quotaClient{baseURL: "http://127.0.0.1:1", http: &http.Client{Timeout: 50 * time.Millisecond}},
+		lastAllowedSession: map[string]time.Time{},
+		gracePeriod:        time.Minute,
+	}
+	srv.markAllowed("s1", "aa:bb:cc:dd:ee:ff")
+	if !srv.wasRecentlyAllowed("s1", "aa:bb:cc:dd:ee:ff") {
+		t.Fatal("expected recent session allowed")
 	}
 }

@@ -38,9 +38,13 @@
         <button id="admin-login">Admin sign in</button>
       </div>
       <div class="row">
+        <button id="refresh-users">Refresh users</button>
         <button id="refresh-sessions">Refresh active sessions</button>
+        <button id="refresh-health">Refresh health</button>
       </div>
+      <pre id="users"></pre>
       <pre id="sessions"></pre>
+      <pre id="health"></pre>
       <hr />
       <h3>Create user</h3>
       <form id="user-form">
@@ -49,6 +53,42 @@
         <input id="new-minutes" type="number" min="1" placeholder="Daily minutes" required />
         <button type="submit">Create</button>
       </form>
+      <h3>Update user quota/status</h3>
+      <form id="update-user-form">
+        <input id="update-username" placeholder="Username" required />
+        <input id="update-minutes" type="number" min="1" placeholder="Daily minutes" />
+        <label><input id="update-active" type="checkbox" checked /> Active</label>
+        <button type="submit">Update</button>
+      </form>
+      <h3>Delete user</h3>
+      <form id="delete-user-form">
+        <input id="delete-username" placeholder="Username" required />
+        <button type="submit">Delete</button>
+      </form>
+      <h3>Revoke session</h3>
+      <form id="revoke-session-form">
+        <input id="revoke-session-id" placeholder="Session ID" required />
+        <input id="revoke-mac" placeholder="Client MAC (aa:bb:cc:dd:ee:ff)" required />
+        <input id="revoke-username" placeholder="Username (optional)" />
+        <button type="submit">Revoke</button>
+      </form>
+      <h3>Hostname logging</h3>
+      <div class="row">
+        <button id="logging-on">Enable</button>
+        <button id="logging-off">Disable</button>
+      </div>
+      <h3>Connection logs</h3>
+      <div class="row">
+        <button id="refresh-logs">Refresh logs</button>
+        <button id="clear-logs">Clear logs</button>
+      </div>
+      <pre id="logs"></pre>
+      <h3>Update</h3>
+      <div class="row">
+        <button id="check-update">Check for update</button>
+        <button id="apply-update">Apply update</button>
+      </div>
+      <pre id="update-status"></pre>
       <p id="admin-result"></p>
     </section>
   </main>
